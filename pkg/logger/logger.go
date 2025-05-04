@@ -6,7 +6,7 @@ import (
 )
 
 func New() *log.Logger {
-	file, err := os.OpenFile("Output log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	file, err := os.Create("Output log")
 	if err != nil {
 		log.Fatal("Failed to open log file:", err)
 	}

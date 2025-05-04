@@ -1,6 +1,7 @@
 package main
 
 import (
+	"biathlon/internal/app"
 	"biathlon/pkg/config"
 	"biathlon/pkg/events"
 	"biathlon/pkg/logger"
@@ -8,9 +9,10 @@ import (
 
 func main() {
 	_ = config.New()
+	log := logger.New()
 
-	_ = logger.New()
+	events, _ := events.New()
 
-	_, _ = events.New()
+	app.WriteToOutputLog(log, events)
 
 }

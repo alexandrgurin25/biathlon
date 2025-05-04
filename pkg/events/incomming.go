@@ -31,7 +31,8 @@ func New() ([]Event, error) {
 		timeString := parseTimeEvent(line)
 
 		// Разделяем Id события и Id участника на 2 части
-		parts := strings.Fields(line[len(timeString):])
+		// + 2, потому что пропускаем последнюю единицу времени и "]"
+		parts := strings.Fields(line[len(timeString)+2:])
 
 		event := Event{
 			Time:         timeString,
