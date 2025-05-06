@@ -1,23 +1,23 @@
-# System prototype for biathlon competitions
-The prototype must be able to work with a configuration file and a set of external events of a certain format.
-Solution should contain golang (1.20 or newer) source file/files and unit tests (optional)
+# Системный прототип для биатлонных соревнований
+Прототип должен уметь работать с файлом конфигурации и набором внешних событий определенного формата.
+Решение должно содержать исходный файл/файлы golang (1.20 или новее) и модульные тесты (необязательно)
 
-## Configuration (json)
+## Конфигурация  (json)
 
-- **Laps**        - Amount of laps for main distance
-- **LapLen**      - Length of each main lap
-- **PenaltyLen**  - Length of each penalty lap
-- **FiringLines** - Number of firing lines per lap
-- **Start**       - Planned start time for the first competitor
-- **StartDelta**  - Planned interval between starts
+- **Laps**        - Количество кругов для основной дистанции
+- **LapLen**      - Длина каждого основного круга
+- **PenaltyLen**  - Длина каждого штрафного круга
+- **FiringLines** - Количество огневых рубежей на круг
+- **Start**       - Планируемое время старта для первого участника
+- **StartDelta**  - Планируемый интервал между стартами
 
-## Events
-All events are characterized by time and event identifier. Outgoing events are events created during program operation. Events related to the "incoming" category cannot be generated and are output in the same form as they were submitted in the input file.
+## События
+Все события характеризуются временем и идентификатором события. Исходящие события - это события, создаваемые во время работы программы. События, относящиеся к категории "входящие", не могут быть сгенерированы и выводятся в той же форме, в которой они были представлены во входном файле.
 
-- All events occur sequentially in time. (***Time of event N+1***) >= (***Time of event N***)
-- Time format ***[HH:MM:SS.sss]***. Trailing zeros are required in input and output
+- Все события происходят последовательно во времени.  (***Время события N+1***) >= (***Время события N***)
+- Формат времен ***[HH:MM:SS.sss]***. Входные и выходные данные должны содержать завершающие нули
 
-#### Common format for events:
+#### Общий формат для событий::
 [***time***] **eventID** **competitorID** extraParams
 
 ```
@@ -35,8 +35,8 @@ EventID | extraParams | Comments
 10      |             | The competitor ended the main lap
 11      | comment     | The competitor can`t continue
 ```
-An competitor is disqualified if he/she does not start during his/her start interval. This marked as **NotStarted** in final report.
-If the competitor can`t continue it should be marked in final report as **NotFinished**
+Участник дисквалифицируется, если он/она не стартует в течение своего стартового интервала. Это отмечается как **NotStarted** в итоговом отчете.
+Если участник не может продолжать, это должно быть отмечено в итоговом отчете как **NotFinished**
 
 ```
 Outgoing events
@@ -45,17 +45,16 @@ EventID | extraParams | Comments
 33      |             | The competitor has finished
 ```
 
-## Final report
-The final report should contain the list of all registered competitors
-sorted by ascending time.
-- Total time includes the difference between scheduled and actual start time or **NotStarted**/**NotFinished** marks
-- Time taken to complete each lap
-- Average speed for each lap [m/s]
-- Time taken to complete penalty laps
-- Average speed over penalty laps [m/s]
-- Number of hits/number of shots
+## Итоговый отчет
+Итоговый отчет должен содержать список всех зарегистрированных участников, отсортированных по возрастанию времени.
+- Общее время включает разницу между запланированным и фактическим временем старта или отметки **NotStarted**/**NotFinished** marks
+- Время, затраченное на прохождение каждого круга
+- Средняя скорость для каждого круга [м/с]
+- Время, затраченное на прохождение штрафных кругов
+- Средняя скорость на штрафных кругах [м/с]
+- Количество попаданий/количество выстрелов
 
-Examples:
+Примеры:
 
 `Config.conf`
 ```json
