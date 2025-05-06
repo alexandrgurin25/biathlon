@@ -19,7 +19,7 @@ func WriteToOutputLog(log *log.Logger, events []events.Event) {
 		case 5:
 			log.Printf("%s The competitor(%d) is on the firing range(%s)", event.Time, event.CompetitorID, event.ExtraParams)
 		case 6:
-			log.Printf("%s The target(%d) has been hit by competitor(%s)", event.Time, event.CompetitorID, event.ExtraParams)
+			log.Printf("%s The target(%s) has been hit by competitor(%d)", event.Time, event.ExtraParams, event.CompetitorID)
 		case 7:
 			log.Printf("%s The competitor(%d) left the firing range", event.Time, event.CompetitorID)
 		case 8:

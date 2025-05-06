@@ -12,9 +12,10 @@ import (
 )
 
 type competitor struct {
-	NotStarted   bool
-	NotFinish    bool
-	Disqualified bool
+	Registered bool
+
+	NotStarted bool
+	NotFinish  bool
 
 	LapsMain     []lap
 	LapsPenalty  []lap
@@ -24,7 +25,6 @@ type competitor struct {
 	WantStart      string
 	ActualStart    string
 	LastLapTime    string
-	FinishTime     string
 
 	PenaltyLenStart string
 	AvgPenaltyTime  string
@@ -48,6 +48,9 @@ func GenerateResultTable(cfg *config.Config, result *log.Logger, log *log.Logger
 		c := competitors[cID]
 
 		switch event.EventID {
+
+		case 1:
+			c.Registered = true
 
 		// Время старта установлено жеребьевкой
 		case 2:
@@ -153,8 +156,7 @@ func outputResultTable(cfg *config.Config, competitors map[int]competitor, event
 		}
 	}
 
-	for i := 0; i < len(competitors); i++ {
-		id := sequentialRegistration[i]
+	for _, id := range sequentialRegistration {
 		c := competitors[id]
 
 		if c.NotStarted {
@@ -168,217 +170,170 @@ func outputResultTable(cfg *config.Config, competitors map[int]competitor, event
 
 }
 
+// превращает строку "HH:MM:SS" или "HH:MM:SS.sss" в time.Duration
+func parseHMS(s string) (time.Duration, error) {
+	parts := strings.SplitN(s, ":", 3)
+	if len(parts) != 3 {
+		return 0, fmt.Errorf("invalid time format: %q", s)
+	}
+	hours, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return 0, err
+	}
+	minutes, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return 0, err
+	}
+
+	// Обрабатываем секции с или без миллисекунд
+	secPart := parts[2]
+	var seconds int
+	var milliseconds int
+	if idx := strings.Index(secPart, "."); idx >= 0 {
+		seconds, err = strconv.Atoi(secPart[:idx])
+		if err != nil {
+			return 0, err
+		}
+		msStr := secPart[idx+1:]
+		// добавим недостающие нули справа, если нужно
+		if len(msStr) < 3 {
+			msStr += strings.Repeat("0", 3-len(msStr))
+		} else if len(msStr) > 3 {
+			msStr = msStr[:3]
+		}
+		milliseconds, err = strconv.Atoi(msStr)
+		if err != nil {
+			return 0, err
+		}
+	} else {
+		seconds, err = strconv.Atoi(secPart)
+		if err != nil {
+			return 0, err
+		}
+	}
+
+	total := time.Duration(hours)*time.Hour +
+		time.Duration(minutes)*time.Minute +
+		time.Duration(seconds)*time.Second +
+		time.Duration(milliseconds)*time.Millisecond
+
+	return total, nil
+}
+
 func calculateLapTime(cfg *config.Config, c *competitor, event *events.Event) error {
-	var lapTimeSeconds float64
-	var actualStartTime time.Time
+	var startTime time.Time
 	var err error
 
 	if c.LastLapTime == "" {
-		actualStartTime, err = parseTime(c.ActualStart)
+		startTime, err = parseTime(c.ActualStart)
 	} else {
-		actualStartTime, err = parseTime(c.LastLapTime)
+		startTime, err = parseTime(c.LastLapTime)
 	}
-
 	if err != nil {
-		return fmt.Errorf("actualStartTime error: %w", err)
+		return err
 	}
 
 	eventTime, err := parseTime(event.Time)
 	if err != nil {
-		return fmt.Errorf("eventTime error:%w", err)
+		return err
 	}
 
-	// Находим разницу от текущего события и начала круга
-	lapDuration := eventTime.Sub(actualStartTime)
+	// Получили время круга круга
+	lapDuration := eventTime.Sub(startTime)
 
-	// Перевод из time.Duration в time.Time
-	lapDate := time.Time{}.Add(lapDuration).String()
-	parts := strings.Split(lapDate, " ")
+	hours := int(lapDuration / time.Hour)
+	minutes := int((lapDuration % time.Hour) / time.Minute)
+	seconds := int((lapDuration % time.Minute) / time.Second)
+	millis := int((lapDuration % time.Second) / time.Millisecond)
+	lapTimeStr := fmt.Sprintf("%02d:%02d:%02d.%03d", hours, minutes, seconds, millis)
 
-	//Убираем лишние данные из времени
-	partsTimeStr := strings.FieldsFunc(parts[1], func(r rune) bool {
-		return r == ':' || r == '.'
-	})
-	partsTime := make([]int, len(partsTimeStr))
-	for i := 0; i < len(partsTimeStr); i++ {
-		partsTime[i], err = strconv.Atoi(partsTimeStr[i])
-		if err != nil {
-			return fmt.Errorf("invalid converted to type: %w", err)
-		}
-	}
+	// Скорость = пройденные метры / секунды
+	speed := float64(cfg.LapLen) / lapDuration.Seconds()
+	speedStr := strconv.FormatFloat(speed, 'f', 3, 64)
 
-	lapTimeSeconds = sumSecondsInTime(lapTimeSeconds, partsTime)
-
-	speedInFloat := float64(cfg.LapLen) / lapTimeSeconds
-	speedInString := strconv.FormatFloat(float64(speedInFloat), 'f', 3, 64)
-
-	lap := lap{
-		Time:  parts[1],
-		Speed: speedInString,
-	}
-
-	//Сохранение состояния
-	c.LapsMain = append(c.LapsMain, lap)
+	c.LapsMain = append(c.LapsMain, lap{Time: lapTimeStr, Speed: speedStr})
 	c.LastLapTime = event.Time
-
 	return nil
 }
 
 func calculatePenaltyLapTime(cfg *config.Config, c *competitor, event *events.Event) error {
-	var lapTimeSeconds float64
-
-	actualPenaltyStartTime, err := parseTime(c.PenaltyLenStart)
+	startTime, err := parseTime(c.PenaltyLenStart)
 	if err != nil {
-		return fmt.Errorf("actualStartTime error: %w", err)
+		return err
 	}
-
 	eventTime, err := parseTime(event.Time)
 	if err != nil {
-		return fmt.Errorf("eventTime error:%w", err)
+		return err
 	}
 
-	// Находим разницу от текущего события и начала круга
-	lapDuration := eventTime.Sub(actualPenaltyStartTime)
+	dur := eventTime.Sub(startTime)
+	hours := int(dur / time.Hour)
+	minutes := int((dur % time.Hour) / time.Minute)
+	seconds := int((dur % time.Minute) / time.Second)
+	millis := int((dur % time.Second) / time.Millisecond)
+	durStr := fmt.Sprintf("%02d:%02d:%02d.%03d", hours, minutes, seconds, millis)
 
-	// Перевод из time.Duration в time.Time
-	lapDate := time.Time{}.Add(lapDuration).String()
-	parts := strings.Split(lapDate, " ")
+	speed := float64(cfg.PenaltyLen) / dur.Seconds()
+	speedStr := strconv.FormatFloat(speed, 'f', 3, 64)
 
-	//Убираем лишние данные из времени
-	partsTimeStr := strings.FieldsFunc(parts[1], func(r rune) bool {
-		return r == ':' || r == '.'
-	})
-	partsTime := make([]int, len(partsTimeStr))
-	for i := 0; i < len(partsTimeStr); i++ {
-		partsTime[i], err = strconv.Atoi(partsTimeStr[i])
-		if err != nil {
-			return fmt.Errorf("invalid converted to type: %w", err)
-		}
+	c.LapsPenalty = append(c.LapsPenalty, lap{Time: durStr, Speed: speedStr})
+
+	// считаем среднее
+	var total time.Duration
+	var sumSpeed float64
+	for _, p := range c.LapsPenalty {
+		d, _ := parseHMS(p.Time) 
+		total += d
+		sp, _ := strconv.ParseFloat(p.Speed, 64)
+		sumSpeed += sp
 	}
+	avgDur := total / time.Duration(len(c.LapsPenalty))
+	ah := int(avgDur / time.Hour)
+	am := int((avgDur % time.Hour) / time.Minute)
+	asec := int((avgDur % time.Minute) / time.Second)
+	ams := int((avgDur % time.Second) / time.Millisecond)
+	c.AvgPenaltyTime = fmt.Sprintf("%02d:%02d:%02d.%03d", ah, am, asec, ams)
+	c.AvgPenaltySpeed = strconv.FormatFloat(sumSpeed/float64(len(c.LapsPenalty)), 'f', 3, 64)
 
-	lapTimeSeconds = sumSecondsInTime(lapTimeSeconds, partsTime)
-
-	speedInFloat := float64(cfg.PenaltyLen) / lapTimeSeconds
-	speedInString := strconv.FormatFloat(float64(speedInFloat), 'f', 3, 64)
-
-	lap := lap{
-		Time:  parts[1],
-		Speed: speedInString,
-	}
-
-	//Сохранение состояния
-	c.LapsPenalty = append(c.LapsPenalty, lap)
-
-	//Считаем среднеее значение времени и скорости
-	var totalTime time.Duration
-
-	for _, penalty := range c.LapsPenalty {
-
-		duration, err := parseTimeToDuration(penalty.Time)
-		if err != nil {
-			return fmt.Errorf("eventTime error: %w", err)
-		}
-		totalTime += duration
-	}
-
-	avgDuration := totalTime / time.Duration(len(c.LapsPenalty))
-
-	// Форматируем в HH:MM:SS.000
-	hours := int(avgDuration.Hours())
-	minutes := int(avgDuration.Minutes()) % 60
-	seconds := int(avgDuration.Seconds()) % 60
-	milliseconds := (avgDuration.Nanoseconds() / 1e6) % 1000 //1e6 - равно 1 миллиону
-
-	c.AvgPenaltyTime = fmt.Sprintf("%02d:%02d:%02d.%03d", hours, minutes, seconds, milliseconds)
-
-	var totalSpeed float64
-
-	for _, penalty := range c.LapsPenalty {
-		speedFloat, err := strconv.ParseFloat(penalty.Speed, 64)
-		if err != nil {
-			return fmt.Errorf("ParseFloat error: %w", err)
-		}
-		totalSpeed += speedFloat
-	}
-
-	avgSpeed := totalSpeed / float64(len(c.LapsPenalty))
-	c.AvgPenaltySpeed = strconv.FormatFloat(avgSpeed, 'f', 3, 64)
 	return nil
 }
 
-func sumSecondsInTime(lapTimeSeconds float64, partsTime []int) float64 {
-	// Переводим время одного круга в секунды
-	if len(partsTime) >= 1 {
-		lapTimeSeconds += (float64(partsTime[0]) * 60 * 60) //Часы
-	}
-
-	if len(partsTime) >= 2 {
-		lapTimeSeconds += float64(partsTime[1]) * 60 // Минуты
-	}
-
-	if len(partsTime) >= 3 {
-		lapTimeSeconds += float64(partsTime[2]) // Секунды
-	}
-
-	if len(partsTime) >= 4 {
-		lapTimeSeconds += float64(partsTime[3]) * float64(0.001) //Милисекунды
-	}
-
-	return lapTimeSeconds
-}
-
 func calculateTimeDifference(cfg *config.Config, c *competitor) error {
-	actualStartTime, err := parseTime(c.ActualStart)
+	actual, err := parseTime(c.ActualStart)
 	if err != nil {
-		return fmt.Errorf("actualStartTime error: %w", err)
+		return err
 	}
 
-	wantedStartTime, err := parseTime(c.WantStart)
+	planned, err := parseTime(c.WantStart)
 	if err != nil {
-		return fmt.Errorf("desiredStartTime error: %w", err)
+		return err
+	}
+	delta, err := parseHMS(cfg.StartDelta) 
+	if err != nil {
+		return err
 	}
 
-	startDeltaTime, err := parseTime(cfg.StartDelta + ".000")
-	if err != nil {
-		return fmt.Errorf("startDeltaTime error: %w", err)
+	diff := actual.Sub(planned)
+
+	// фальстарт (возможно стоит как то учитывать)
+	if diff < 0 {
+		diff = 0
 	}
-	startDeltaTime = startDeltaTime.AddDate(1, 0, 0)
 
-	timeDifference := actualStartTime.Sub(wantedStartTime)
-
-	if startDeltaTime.Sub(time.Time{}.Add(timeDifference)) > 0 {
-		hours := int(timeDifference.Hours())
-		minutes := int(timeDifference.Minutes()) % 60
-		seconds := int(timeDifference.Seconds()) % 60
-		milliseconds := (timeDifference.Nanoseconds() / 1e6) % 1000 //1e6 - равно 1 миллиону
-
-		c.TimeDifference = fmt.Sprintf("%02d:%02d:%02d.%03d", hours, minutes, seconds, milliseconds)
-
-	} else {
+	// не успел стартануть
+	if diff > delta {
 		c.NotStarted = true
+		return nil
 	}
 
+	h := int(diff / time.Hour)
+	m := int((diff % time.Hour) / time.Minute)
+	s := int((diff % time.Minute) / time.Second)
+	ms := int((diff % time.Second) / time.Millisecond)
+	c.TimeDifference = fmt.Sprintf("%02d:%02d:%02d.%03d", h, m, s, ms)
 	return nil
 }
 
 func parseTime(timeStr string) (time.Time, error) {
 	return time.Parse("15:04:05.000", timeStr)
-}
-
-func parseTimeToDuration(timeStr string) (time.Duration, error) {
-	// Убедимся, что есть миллисекунды
-	if len(timeStr) < 12 {
-		timeStr = timeStr + ".000"
-	}
-
-	t, err := time.Parse("15:04:05.000", timeStr)
-	if err != nil {
-		return 0, err
-	}
-
-	// Берём только время
-	return time.Duration(t.Hour())*time.Hour +
-		time.Duration(t.Minute())*time.Minute +
-		time.Duration(t.Second())*time.Second +
-		time.Duration(t.Nanosecond())*time.Nanosecond, nil
 }

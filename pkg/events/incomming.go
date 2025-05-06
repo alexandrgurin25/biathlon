@@ -3,6 +3,7 @@ package events
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -15,9 +16,10 @@ type Event struct {
 }
 
 func New() ([]Event, error) {
-	file, err := os.ReadFile("external_events\\events")
+	eventsPath := filepath.Join("external_events", "events")
+	file, err := os.ReadFile(eventsPath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf(" \"events\" could not be opened, it may be necessary to add events to the \"external_events\" folder -> %v", err)
 	}
 
 	lines := strings.Split(string(file), "\n")

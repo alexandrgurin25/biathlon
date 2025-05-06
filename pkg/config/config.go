@@ -2,8 +2,9 @@ package config
 
 import (
 	"encoding/json"
-	"log"
+	"fmt"
 	"os"
+	"path/filepath"
 )
 
 type Config struct {
@@ -15,18 +16,19 @@ type Config struct {
 	StartDelta  string `json:"startDelta"`
 }
 
-func New() *Config {
+func New() (*Config, error) {
 	var cfg Config
 
-	file, err := os.ReadFile("./config/config.json")
+	cfgPath := filepath.Join("config", "config.json")
+	file, err := os.ReadFile(cfgPath)
 	if err != nil {
-		log.Fatal("Error opening the file: ", err)
+		return nil, fmt.Errorf("the file could not be opened, you may need to add \"config.json\" to the \"config\" folder -> %v", err)
 	}
 
 	err = json.Unmarshal(file, &cfg)
 	if err != nil {
-		log.Fatal("Error occurred during unmarshal: ", err)
+		return nil, fmt.Errorf("error occurred during unmarshal: %v", err)
 	}
 
-	return &cfg
+	return &cfg, nil
 }
