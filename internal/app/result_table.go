@@ -127,6 +127,11 @@ func GenerateResultTable(cfg *config.Config, result *log.Logger, log *log.Logger
 			}
 		}
 
+		if len(c.LapsPenalty) == 0 {
+			c.AvgPenaltyTime = "00:00:00.000"
+			c.AvgPenaltySpeed = "0.000"
+		}
+
 		competitors[cID] = c
 	}
 	allEvents := append(incommingEvents, outgoingEvents...)
@@ -181,19 +186,22 @@ func isLastLap(cfg *config.Config, c *competitor) bool {
 }
 
 func outputResultTable(cfg *config.Config, competitors map[int]competitor, res *log.Logger) {
-
 	competitorsSlice := sortResultByTotalTime(competitors)
 
 	for _, c := range competitorsSlice {
+		penaltyInfo := fmt.Sprintf("{%s, %s}", c.AvgPenaltyTime, c.AvgPenaltySpeed)
+
 		if c.NotStarted {
-			res.Printf("NotStarted %d %v %v {%s, %s} %d/%d\n", c.id, c.LapsMain, c.LapsPenalty, c.AvgPenaltyTime, c.AvgPenaltySpeed, c.NumberOfHits, 5*cfg.Laps)
+			res.Printf("NotStarted %d %v %v %s %d/%d\n",
+				c.id, c.LapsMain, c.LapsPenalty, penaltyInfo, c.NumberOfHits, 5*cfg.Laps)
 		} else if c.NotFinish {
-			res.Printf("NotFinished %d %v {%s, %s} %d/%d\n", c.id, c.LapsMain, c.AvgPenaltyTime, c.AvgPenaltySpeed, c.NumberOfHits, 5*cfg.Laps)
+			res.Printf("NotFinished %d %v %s %d/%d\n",
+				c.id, c.LapsMain, penaltyInfo, c.NumberOfHits, 5*cfg.Laps)
 		} else {
-			res.Printf("%s %d %v {%s, %s} %d/%d\n", c.TotalRouteTime, c.id, c.LapsMain, c.AvgPenaltyTime, c.AvgPenaltySpeed, c.NumberOfHits, 5*cfg.Laps)
+			res.Printf("%s %d %v %s %d/%d\n",
+				c.TotalRouteTime, c.id, c.LapsMain, penaltyInfo, c.NumberOfHits, 5*cfg.Laps)
 		}
 	}
-
 }
 
 // превращает строку "HH:MM:SS" или "HH:MM:SS.sss" в time.Duration
