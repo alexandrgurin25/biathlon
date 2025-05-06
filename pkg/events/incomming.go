@@ -1,6 +1,7 @@
 package events
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -38,6 +39,10 @@ func New() ([]Event, error) {
 			Time:         timeString,
 			EventID:      parseInt(parts[0]),
 			CompetitorID: parseInt(parts[1]),
+		}
+
+		if event.EventID == 32 || event.EventID == 33 {
+			return nil, fmt.Errorf("входной файл не может содержать исходящие события (ID 32 или 33)")
 		}
 
 		if len(parts) > 2 {

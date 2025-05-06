@@ -30,6 +30,10 @@ func WriteToOutputLog(log *log.Logger, events []events.Event) {
 			log.Printf("%s The competitor(%d) ended the main lap", event.Time, event.CompetitorID)
 		case 11:
 			log.Printf("%s The competitor(%d) can`t continue: %s", event.Time, event.CompetitorID, event.ExtraParams)
+		case 32:
+			log.Printf("%s The competitor(%d) is disqualified", event.Time, event.CompetitorID)
+		case 33:
+			log.Printf("%s The competitor(%d) has finished", event.Time, event.CompetitorID)
 		}
 	}
 }

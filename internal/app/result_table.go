@@ -5,14 +5,16 @@ import (
 	"biathlon/pkg/events"
 	"fmt"
 	"log"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 )
 
 type competitor struct {
-	NotStarted bool
-	NotFinish  bool
+	NotStarted   bool
+	NotFinish    bool
+	Disqualified bool
 
 	LapsMain     []lap
 	LapsPenalty  []lap
@@ -22,10 +24,13 @@ type competitor struct {
 	WantStart      string
 	ActualStart    string
 	LastLapTime    string
+	FinishTime     string
 
 	PenaltyLenStart string
 	AvgPenaltyTime  string
 	AvgPenaltySpeed string
+
+	CompletedLaps int
 }
 
 type lap struct {
@@ -33,10 +38,11 @@ type lap struct {
 	Speed string
 }
 
-func GenerateResultTable(cfg *config.Config, result *log.Logger, events []events.Event) {
+func GenerateResultTable(cfg *config.Config, result *log.Logger, log *log.Logger, incommingEvents []events.Event) {
 	competitors := make(map[int]competitor)
+	var outgoingEvents []events.Event
 
-	for _, event := range events {
+	for _, event := range incommingEvents {
 
 		cID := event.CompetitorID
 		c := competitors[cID]
@@ -50,7 +56,18 @@ func GenerateResultTable(cfg *config.Config, result *log.Logger, events []events
 		// Участник стартовал
 		case 4:
 			c.ActualStart = event.Time
-
+			// Проверяем, не опоздал ли участник на старт
+			if err := calculateTimeDifference(cfg, &c); err != nil {
+				fmt.Println("Error calculating time difference:", err)
+			}
+			if c.NotStarted {
+				dqEvent := events.Event{
+					Time:         c.ActualStart,
+					EventID:      32,
+					CompetitorID: cID,
+				}
+				outgoingEvents = append(outgoingEvents, dqEvent)
+			}
 		// Мишень поражена
 		case 6:
 			c.NumberOfHits++
@@ -71,6 +88,17 @@ func GenerateResultTable(cfg *config.Config, result *log.Logger, events []events
 				fmt.Println("Error calculating time main lap:", err)
 			}
 
+			c.CompletedLaps++
+			if isLastLap(cfg, &c) {
+				// Генерируем событие о финише
+				finishEvent := events.Event{
+					Time:         event.Time,
+					EventID:      33,
+					CompetitorID: cID,
+				}
+				outgoingEvents = append(outgoingEvents, finishEvent)
+			}
+
 		// Участник не может продолжать
 		case 11:
 			c.NotFinish = true
@@ -87,9 +115,32 @@ func GenerateResultTable(cfg *config.Config, result *log.Logger, events []events
 
 		competitors[cID] = c
 	}
+	allEvents := append(incommingEvents, outgoingEvents...)
+
+	sortEventsByTime(allEvents)
+
+	WriteToOutputLog(log, allEvents)
 
 	// Вывод таблицы результатов
-	outputResultTable(cfg, competitors, events, result)
+	outputResultTable(cfg, competitors, incommingEvents, result)
+}
+
+func sortEventsByTime(events []events.Event) {
+	sort.Slice(events, func(i, j int) bool {
+		timeI, errI := parseTime(events[i].Time)
+		timeJ, errJ := parseTime(events[j].Time)
+
+		// В случае ошибок парсинга сохраняем исходный порядок
+		if errI != nil || errJ != nil {
+			return i < j
+		}
+
+		return timeI.Before(timeJ)
+	})
+}
+
+func isLastLap(cfg *config.Config, c *competitor) bool {
+	return c.CompletedLaps >= cfg.Laps
 }
 
 func outputResultTable(cfg *config.Config, competitors map[int]competitor, events []events.Event, res *log.Logger) {

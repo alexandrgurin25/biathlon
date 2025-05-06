@@ -10,12 +10,11 @@ import (
 
 func main() {
 	cfg := config.New()
-	log := logger.New()
-	result := result.New()
+	outputLog := logger.New()
+	resultTable := result.New()
 
 	events, _ := events.New()
 
-	app.WriteToOutputLog(log, events)
-	app.GenerateResultTable(cfg, result, events)
+	app.GenerateResultTable(cfg, resultTable, outputLog, events)
 
 }
