@@ -13,6 +13,7 @@ import (
 
 type competitor struct {
 	Registered bool
+	id         int
 
 	NotStarted bool
 	NotFinish  bool
@@ -30,7 +31,10 @@ type competitor struct {
 	AvgPenaltyTime  string
 	AvgPenaltySpeed string
 
+	FinishTime    string
 	CompletedLaps int
+
+	TotalRouteTime string
 }
 
 type lap struct {
@@ -51,6 +55,7 @@ func GenerateResultTable(cfg *config.Config, result *log.Logger, log *log.Logger
 
 		case 1:
 			c.Registered = true
+			c.id = event.CompetitorID
 
 		// Время старта установлено жеребьевкой
 		case 2:
@@ -99,6 +104,12 @@ func GenerateResultTable(cfg *config.Config, result *log.Logger, log *log.Logger
 					EventID:      33,
 					CompetitorID: cID,
 				}
+
+				c.FinishTime = event.Time
+
+				if err := calculateTotalTime(cfg, &c); err != nil {
+					fmt.Println("Error calculating Total time laps:", err)
+				}
 				outgoingEvents = append(outgoingEvents, finishEvent)
 			}
 
@@ -125,7 +136,30 @@ func GenerateResultTable(cfg *config.Config, result *log.Logger, log *log.Logger
 	WriteToOutputLog(log, allEvents)
 
 	// Вывод таблицы результатов
-	outputResultTable(cfg, competitors, incommingEvents, result)
+	outputResultTable(cfg, competitors, result)
+}
+
+func sortResultByTotalTime(competitors map[int]competitor) []competitor {
+
+	competitorsSlice := make([]competitor, 0)
+
+	for _, c := range competitors {
+		competitorsSlice = append(competitorsSlice, c)
+	}
+
+	sort.Slice(competitorsSlice, func(i, j int) bool {
+		timeI, errI := parseTime(competitorsSlice[i].TotalRouteTime)
+		timeJ, errJ := parseTime(competitorsSlice[j].TotalRouteTime)
+
+		// В случае ошибок парсинга сохраняем исходный порядок
+		if errI != nil || errJ != nil {
+			return i < j
+		}
+
+		return timeI.Before(timeJ)
+	})
+
+	return competitorsSlice
 }
 
 func sortEventsByTime(events []events.Event) {
@@ -146,25 +180,17 @@ func isLastLap(cfg *config.Config, c *competitor) bool {
 	return c.CompletedLaps >= cfg.Laps
 }
 
-func outputResultTable(cfg *config.Config, competitors map[int]competitor, events []events.Event, res *log.Logger) {
+func outputResultTable(cfg *config.Config, competitors map[int]competitor, res *log.Logger) {
 
-	sequentialRegistration := make([]int, 0)
+	competitorsSlice := sortResultByTotalTime(competitors)
 
-	for i := 0; i < len(events); i++ {
-		if events[i].EventID == 1 {
-			sequentialRegistration = append(sequentialRegistration, events[i].CompetitorID)
-		}
-	}
-
-	for _, id := range sequentialRegistration {
-		c := competitors[id]
-
+	for _, c := range competitorsSlice {
 		if c.NotStarted {
-			res.Printf("NotStarted %d %v %v {%s, %s} %d/%d\n", id, c.LapsMain, c.LapsPenalty, c.AvgPenaltyTime, c.AvgPenaltySpeed, c.NumberOfHits, 5*cfg.Laps)
+			res.Printf("NotStarted %d %v %v {%s, %s} %d/%d\n", c.id, c.LapsMain, c.LapsPenalty, c.AvgPenaltyTime, c.AvgPenaltySpeed, c.NumberOfHits, 5*cfg.Laps)
 		} else if c.NotFinish {
-			res.Printf("NotFinished %d %v {%s, %s} %d/%d\n", id, c.LapsMain, c.AvgPenaltyTime, c.AvgPenaltySpeed, c.NumberOfHits, 5*cfg.Laps)
+			res.Printf("NotFinished %d %v {%s, %s} %d/%d\n", c.id, c.LapsMain, c.AvgPenaltyTime, c.AvgPenaltySpeed, c.NumberOfHits, 5*cfg.Laps)
 		} else {
-			res.Printf("%s %d %v {%s, %s} %d/%d\n", c.TimeDifference, id, c.LapsMain, c.AvgPenaltyTime, c.AvgPenaltySpeed, c.NumberOfHits, 5*cfg.Laps)
+			res.Printf("%s %d %v {%s, %s} %d/%d\n", c.TotalRouteTime, c.id, c.LapsMain, c.AvgPenaltyTime, c.AvgPenaltySpeed, c.NumberOfHits, 5*cfg.Laps)
 		}
 	}
 
@@ -282,7 +308,7 @@ func calculatePenaltyLapTime(cfg *config.Config, c *competitor, event *events.Ev
 	var total time.Duration
 	var sumSpeed float64
 	for _, p := range c.LapsPenalty {
-		d, _ := parseHMS(p.Time) 
+		d, _ := parseHMS(p.Time)
 		total += d
 		sp, _ := strconv.ParseFloat(p.Speed, 64)
 		sumSpeed += sp
@@ -308,7 +334,7 @@ func calculateTimeDifference(cfg *config.Config, c *competitor) error {
 	if err != nil {
 		return err
 	}
-	delta, err := parseHMS(cfg.StartDelta) 
+	delta, err := parseHMS(cfg.StartDelta)
 	if err != nil {
 		return err
 	}
@@ -331,6 +357,28 @@ func calculateTimeDifference(cfg *config.Config, c *competitor) error {
 	s := int((diff % time.Minute) / time.Second)
 	ms := int((diff % time.Second) / time.Millisecond)
 	c.TimeDifference = fmt.Sprintf("%02d:%02d:%02d.%03d", h, m, s, ms)
+	return nil
+}
+
+// Общее время включает разницу между запланированным и фактическим временем старта
+func calculateTotalTime(config *config.Config, c *competitor) error {
+	finish, err := parseTime(c.FinishTime)
+	if err != nil {
+		return err
+	}
+
+	planned, err := parseTime(c.WantStart)
+	if err != nil {
+		return err
+	}
+
+	diff := finish.Sub(planned)
+
+	h := int(diff / time.Hour)
+	m := int((diff % time.Hour) / time.Minute)
+	s := int((diff % time.Minute) / time.Second)
+	ms := int((diff % time.Second) / time.Millisecond)
+	c.TotalRouteTime = fmt.Sprintf("%02d:%02d:%02d.%03d", h, m, s, ms)
 	return nil
 }
 
